@@ -1,4 +1,4 @@
-/// Do-file to transform scraped spreadsheets from CFEC into .dta files
+// Do-file to transform scraped spreadsheets from CFEC into .dta files
 // Author: Greg Boudreaux
 // Date: January 2024
 
@@ -55,12 +55,18 @@ drop PermitSerial PermitSerialCheckDigit
 destring Year Seq, replace
 drop if PermitType != "Permanent"
 sort PermitNumber Year Seq
+
+save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", replace  // GB - sub in whatever path you are going to use. 
 }
 
 ***********************************************************************************
 ** Section 1: Making permit-level origin-dest dataset for entire 1975-24 period  **
 ***********************************************************************************
 {
+	
+use "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", clear
+
+
 sort PermitNumber PermitStatus Year
 
 // Dropping all entries for permits after they are cancelled 
@@ -209,4 +215,22 @@ replace stat_all = 1 if stat_owners == 1 & stat_zips == 1
 order stat_all, after(stat_owners)
 gen range = last_yr - first_yr + 1
 order range, after(last_yr)
+}
+
+***********************************************************************************
+** Section 2: Making the inputs for an area map which shows how many permits     **
+** exist in the system at any give time.                                         **
+***********************************************************************************
+{
+use "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", clear
+
+// Dropping all entries for permits after they are cancelled 
+drop if PermitStatus == "Permit cancelled"
+duplicates drop PermitNumber Year, force
+
+// Making area map counts by year (break this up by catch/region/etc in final version)
+bysort Year: egen Permits_in_Yr = count(_n)
+duplicates drop Year, force
+
+twoway line Permits_in_Yr Year
 }
