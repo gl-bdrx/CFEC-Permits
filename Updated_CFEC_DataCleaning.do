@@ -330,6 +330,7 @@ label var location_hist_descrip "Hist location from CFEC site"
 ** LATEST SAVE OF THE FULL INITIAL PANEL **
 save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", replace
 
+
 **********************************************************************
 ******* Section 1b. Making example tracking dataset and variables  *** 
 ******* for one permit. Generalize this for whole dataset later.   *** // FINISH WITH MORE DATA
@@ -620,7 +621,209 @@ replace temp = 1 if state[_n]== state[_n-1] & year[_n]!=year[_n-1]+1
 }
 
 ***********************************************************************************
-** Section 2: Making permit-level origin-dest dataset for entire 1975-24 period  **
+** Section 2: Mapping permit migration over time (as in Mapping.do) file         ** // Incomplete
+***********************************************************************************
+
+use "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", clear
+
+
+// bookkeeping
+sort PermitNumber year Seq
+order PermitNumber year Seq, first
+order descrip, before(catch_descrip)
+order current_descrip, before(catch_current_descrip)
+order hist_descrip, before(catch_hist_descrip)
+order Name, before(Street)
+order FirstName LastName Middle Suffix dup Transferable SeqCheckDigit, last
+order Name ZipCode PermitStatus, after(Seq)
+
+// exploring cancellations - why do some permits pop back up after being cancelled?
+gen ind = 0
+replace ind = 1 if PermitStatus == "Permit cancelled"
+egen sum_ind = sum(ind), by(PermitNumber)
+drop if sum_ind ==0
+sort PermitNumber year Seq
+codebook PermitNumber
+
+// Dropping all entries for permits after they are cancelled 
+gen ind = 1
+sort PermitNumber PermitStatus year
+bysort PermitNumber PermitStatus: replace ind = 0 if _n !=1
+drop if PermitStatus == "Permit cancelled" & ind == 0
+
+
+// making countmax variable- maximum number of yearly transfers per permit
+egen countmax = max(Seq), by(PermitNumber)
+order countmax, after(PermitNumber)
+preserve
+duplicates drop PermitNumber, force
+tab countmax
+restore
+
+/*
+save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", replace
+*/
+
+{
+
+**************************************************************
+// keeping permits with countmax == 1 and making map of these.
+**************************************************************
+frames reset
+use "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", clear
+sort PermitNumber year
+order ZipCode, after(Name)
+order countmax, first
+
+keep if countmax ==1
+codebook PermitNumber, compact //
+sort PermitNumber year
+
+// boiling down to two random permits. Once you get this to work, do all.
+// keep if permitnumber == "98866G" | permitnumber == "98632A"
+
+levelsof permitnumber, local(permits)
+
+foreach p of local permits {
+
+	// new frame with just observations from that year and one year pre/post
+	frame change default
+	frame put permitnumber year name zipcode city state, into(Permit_`p')
+	
+	frame change Permit_`p'
+	keep if permitnumber == "`p'"
+	
+	levelsof year, local(yrs)
+	local first = word("`yrs'", 1)
+	di `first'
+	
+	foreach y of local yrs {
+		
+		frame change Permit_`p'
+		frame put permitnumber year name zipcode city state, into(Permit_`p'_`y')
+		frame change Permit_`p'_`y'
+		keep if year == `y' | year == `y'-1 | year == `y'+1
+		
+		// making indicator for whether or not the next year is observed.
+		gen next_yr_observed = 0
+		sum year
+		if r(max) >  `y' {
+			replace next_yr_observed = 1
+		}
+		
+		if next_yr_observed == 1 { // if the permit is in the dataset for the next year:
+		
+			gen next_observed = 1
+				
+			// Case 1: length[z(y)] = length[z(y+1)] = 1 (ONLY CASE HERE)
+			
+			levelsof zipcode if year == `y'+1, local(next_zips)
+			levelsof zipcode if year == `y', local(curr_zips)
+			local result : list next_zips === curr_zips // lists are equal
+			di `result'
+			
+			gen move = 0
+			replace move = 1 if `result' == 0 // if zips are different bw y and y+1
+			gen intra_move = 0 // no intra
+			gen inter_move = 0
+			replace inter_move =1 if `result' == 0 // if zips are different bw y and y+1
+			
+			levelsof name if year == `y'+1, local(next_name)
+			levelsof name if year == `y', local(curr_name)
+			local result : list next_name === curr_name // lists are equal
+			di `result'
+			
+			gen re_sort = 0
+			replace re_sort = 1 if `result' == 1 // owner is the same in the next year
+			gen start_zip = `curr_zips'
+			gen end_zip = `next_zips'
+			keep if year == `y'
+			keep in 1
+			keep permitnumber year move intra_move inter_move re_sort start_zip end_zip
+			
+			}
+			
+			else {
+				
+			gen next_observed = 0
+			gen move = 0
+			gen intra_move = 0
+			gen inter_move = 0
+			gen re_sort = 0
+			levelsof zipcode if year == `y', local(curr_zips)
+			gen start_zip = `curr_zips'
+			gen end_zip = "NA"
+			keep if year == `y'
+			keep in 1
+			keep permitnumber year move intra_move inter_move re_sort start_zip end_zip 
+				
+			}
+			
+			save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\One mapping\Permit_`p'_`y'.dta", replace
+			frame change default
+			if `y' > `first' {
+			frame drop Permit_`p'_`y'
+			}
+
+	}
+	
+	frame change Permit_`p'_`first'
+	foreach x of local yrs {
+		append using "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\One mapping\Permit_`p'_`x'.dta"
+		
+		erase "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\One mapping\Permit_`p'_`x'.dta"
+		
+		
+	}
+	
+	frame drop Permit_`p'
+	frame change Permit_`p'_`first'
+	save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\One mapping\Permit_`p'.dta", replace
+	frame change default
+	frame drop Permit_`p'_`first'
+	
+		
+}
+
+// appending
+cd "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\One mapping"
+clear
+append using `: dir . files "*.dta"' // append all files together
+
+keep if move == 1
+drop if start_zip =="." | end_zip == "."
+
+// getting all zips to 5 digits
+tab start_zip
+replace start_zip ="06708" if start_zip == "6708"
+replace start_zip ="06810" if start_zip == "6810"
+tab end_zip 
+replace end_zip ="06708" if end_zip == "6708"
+replace end_zip ="06810" if end_zip == "6810"
+replace start_zip = substr(start_zip, 1, 5) // 1 change made
+replace end_zip = substr(end_zip, 1, 5) // 2 changes made
+drop if start_zip == end_zip // 8 deleted
+
+sort year start_zip end_zip
+duplicates drop permitnumber year start_zip end_zip, force // figure out why these were happening. I think it's the appending of the first year frames.
+
+gen ind = 1
+bysort year start_zip end_zip: egen sum = sum(ind)
+drop ind
+rename sum number_permits
+bysort year start_zip end_zip: egen sum = sum(re_sort)
+rename sum number_resorts
+bysort year start_zip end_zip: egen sum = sum(intra_move)
+rename sum number_intra
+bysort year start_zip end_zip: egen sum = sum(inter_move)
+rename sum number_inter
+bysort year start_zip end_zip: keep if _n ==1
+drop permitnumber move intra_move inter_move re_sort
+
+}
+
+***********************************************************************************
+** Section 3: Making permit-level origin-dest dataset for entire 1975-24 period  **
 ***********************************************************************************
 {
 
@@ -779,7 +982,7 @@ order range, after(last_yr)
 }
 
 ***********************************************************************************
-** Section 3: Making the inputs for an area chart which shows how many permits     **
+** Section 4: Making the inputs for an area chart which shows how many permits     **
 ** exist in the system at any give time.                                         **
 ***********************************************************************************
 {
