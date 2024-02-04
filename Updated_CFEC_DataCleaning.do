@@ -638,12 +638,16 @@ order FirstName LastName Middle Suffix dup Transferable SeqCheckDigit, last
 order Name ZipCode PermitStatus, after(Seq)
 
 // exploring cancellations - why do some permits pop back up after being cancelled?
+/*
 gen ind = 0
 replace ind = 1 if PermitStatus == "Permit cancelled"
 egen sum_ind = sum(ind), by(PermitNumber)
 drop if sum_ind ==0
 sort PermitNumber year Seq
 codebook PermitNumber
+*/
+
+// fix cancellation thing here
 
 // Dropping all entries for permits after they are cancelled 
 gen ind = 1
@@ -669,8 +673,8 @@ save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_2
 **************************************************************
 // keeping permits with countmax == 1 and making map of these.
 **************************************************************
-frames reset
-use "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", clear
+// frames reset
+// use "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", clear
 sort PermitNumber year
 order ZipCode, after(Name)
 order countmax, first
@@ -680,18 +684,18 @@ codebook PermitNumber, compact //
 sort PermitNumber year
 
 // boiling down to two random permits. Once you get this to work, do all.
-// keep if permitnumber == "98866G" | permitnumber == "98632A"
+// keep if PermitNumber == "55354H" | PermitNumber == "56651F"
 
-levelsof permitnumber, local(permits)
+levelsof PermitNumber, local(permits)
 
 foreach p of local permits {
 
 	// new frame with just observations from that year and one year pre/post
 	frame change default
-	frame put permitnumber year name zipcode city state, into(Permit_`p')
+	frame put PermitNumber year Name ZipCode City State, into(Permit_`p') // `p'
 	
-	frame change Permit_`p'
-	keep if permitnumber == "`p'"
+	frame change Permit_`p' // `p'
+	keep if PermitNumber == "`p'" // "`p'"
 	
 	levelsof year, local(yrs)
 	local first = word("`yrs'", 1)
@@ -699,8 +703,8 @@ foreach p of local permits {
 	
 	foreach y of local yrs {
 		
-		frame change Permit_`p'
-		frame put permitnumber year name zipcode city state, into(Permit_`p'_`y')
+		frame change Permit_`p' // `p'
+		frame put PermitNumber year Name ZipCode City State, into(Permit_`p'_`y') // `p'
 		frame change Permit_`p'_`y'
 		keep if year == `y' | year == `y'-1 | year == `y'+1
 		
@@ -717,8 +721,8 @@ foreach p of local permits {
 				
 			// Case 1: length[z(y)] = length[z(y+1)] = 1 (ONLY CASE HERE)
 			
-			levelsof zipcode if year == `y'+1, local(next_zips)
-			levelsof zipcode if year == `y', local(curr_zips)
+			levelsof ZipCode if year == `y'+1, local(next_zips)
+			levelsof ZipCode if year == `y', local(curr_zips)
 			local result : list next_zips === curr_zips // lists are equal
 			di `result'
 			
@@ -728,8 +732,8 @@ foreach p of local permits {
 			gen inter_move = 0
 			replace inter_move =1 if `result' == 0 // if zips are different bw y and y+1
 			
-			levelsof name if year == `y'+1, local(next_name)
-			levelsof name if year == `y', local(curr_name)
+			levelsof Name if year == `y'+1, local(next_name)
+			levelsof Name if year == `y', local(curr_name)
 			local result : list next_name === curr_name // lists are equal
 			di `result'
 			
@@ -739,7 +743,7 @@ foreach p of local permits {
 			gen end_zip = `next_zips'
 			keep if year == `y'
 			keep in 1
-			keep permitnumber year move intra_move inter_move re_sort start_zip end_zip
+			keep PermitNumber year move intra_move inter_move re_sort start_zip end_zip
 			
 			}
 			
@@ -750,16 +754,16 @@ foreach p of local permits {
 			gen intra_move = 0
 			gen inter_move = 0
 			gen re_sort = 0
-			levelsof zipcode if year == `y', local(curr_zips)
+			levelsof ZipCode if year == `y', local(curr_zips)
 			gen start_zip = `curr_zips'
 			gen end_zip = "NA"
 			keep if year == `y'
 			keep in 1
-			keep permitnumber year move intra_move inter_move re_sort start_zip end_zip 
+			keep PermitNumber year move intra_move inter_move re_sort start_zip end_zip 
 				
 			}
 			
-			save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\One mapping\Permit_`p'_`y'.dta", replace
+			save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Jan 2024 New Data\One mapping\Permit_`p'_`y'.dta", replace
 			frame change default
 			if `y' > `first' {
 			frame drop Permit_`p'_`y'
@@ -769,31 +773,30 @@ foreach p of local permits {
 	
 	frame change Permit_`p'_`first'
 	foreach x of local yrs {
-		append using "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\One mapping\Permit_`p'_`x'.dta"
+		append using "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Jan 2024 New Data\One mapping\Permit_`p'_`x'.dta"
 		
-		erase "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\One mapping\Permit_`p'_`x'.dta"
+		erase "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Jan 2024 New Data\One mapping\Permit_`p'_`x'.dta"
 		
 		
 	}
 	
 	frame drop Permit_`p'
 	frame change Permit_`p'_`first'
-	save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\One mapping\Permit_`p'.dta", replace
+	save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Jan 2024 New Data\One mapping\Permit_`p'.dta", replace
 	frame change default
 	frame drop Permit_`p'_`first'
-	
 		
 }
 
 // appending
-cd "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\One mapping"
+cd "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Jan 2024 New Data\One mapping"
 clear
 append using `: dir . files "*.dta"' // append all files together
 
 keep if move == 1
 drop if start_zip =="." | end_zip == "."
 
-// getting all zips to 5 digits
+// getting all zips to 5 digits. Modify this.
 tab start_zip
 replace start_zip ="06708" if start_zip == "6708"
 replace start_zip ="06810" if start_zip == "6810"
