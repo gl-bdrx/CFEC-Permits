@@ -825,6 +825,55 @@ drop permitnumber move intra_move inter_move re_sort
 
 }
 
+// preliminary mapping work for 2+ permits
+// load initial Test_215B.dta file first
+
+keep if countmax > 1 
+codebook PermitNumber, compact // 4735 permits remain
+sort PermitNumber year Seq
+
+gen lagZip = ZipCode[_n-1]
+order lagZip, after(ZipCode)
+replace lagZip = "" if PermitNumber[_n-1] != PermitNumber
+
+gen nextZip = ZipCode[_n+1]
+replace nextZip = "" if PermitNumber[_n+1] != PermitNumber
+order nextZip, after(lagZip)
+order lagZip, before(ZipCode)
+
+gen perm_trans = 0
+order perm_trans, after(nextZip)
+replace perm_trans = 1 if nextZip != ZipCode & PermitStatus == "Permit holder; permanently transferred permit away"
+
+gen temp_trans = 0
+order temp_trans, after(nextZip)
+replace temp_trans = 1 if nextZip != ZipCode & PermitStatus[_n+1] == "Temporary holder through emergency transfer"
+
+gen move = 0
+order move, after(nextZip)
+replace move = 1 if nextZip !=ZipCode & PermitNumber[_n+1] == PermitNumber
+
+gen re_sort = 0
+order re_sort, after(move)
+replace re_sort = 1 if move == 1 & Name[_n+1] ==Name
+
+tab PermitStatus if move == 1 & re_sort == 0 & temp_trans == 0 & perm_trans == 0
+
+frame put *, into(newframe)
+frame change newframe
+keep if PermitStatus == "Permit holder" & move == 1 & re_sort == 0 & temp_trans == 0 & perm_trans == 0
+
+gen inter_year = 0
+order inter_year, after(move)
+replace inter_year = 1 if move == 1 & year[_n+1] != year
+
+gen intra_year = 0
+order intra_year, after(inter_year)
+replace intra_year = 1 if move == 1 & year[_n+1] == year
+
+count if move == 1 & inter_year == 0 & intra_year == 0
+
+
 ***********************************************************************************
 ** Section 3: Making permit-level origin-dest dataset for entire 1975-24 period  **
 ***********************************************************************************
