@@ -796,7 +796,8 @@ append using `: dir . files "*.dta"' // append all files together
 keep if move == 1
 drop if start_zip =="." | end_zip == "."
 
-// getting all zips to 5 digits. Modify this.
+// getting all zips to 5 digits. Modify this in final data. Nt needed in example
+/*
 tab start_zip
 replace start_zip ="06708" if start_zip == "6708"
 replace start_zip ="06810" if start_zip == "6810"
@@ -806,9 +807,9 @@ replace end_zip ="06810" if end_zip == "6810"
 replace start_zip = substr(start_zip, 1, 5) // 1 change made
 replace end_zip = substr(end_zip, 1, 5) // 2 changes made
 drop if start_zip == end_zip // 8 deleted
-
+*/
 sort year start_zip end_zip
-duplicates drop permitnumber year start_zip end_zip, force // figure out why these were happening. I think it's the appending of the first year frames.
+duplicates drop PermitNumber year start_zip end_zip, force // figure out why these were happening. I think it's the appending of the first year frames.
 
 gen ind = 1
 bysort year start_zip end_zip: egen sum = sum(ind)
@@ -821,15 +822,17 @@ rename sum number_intra
 bysort year start_zip end_zip: egen sum = sum(inter_move)
 rename sum number_inter
 bysort year start_zip end_zip: keep if _n ==1
-drop permitnumber move intra_move inter_move re_sort
+drop PermitNumber move intra_move inter_move re_sort
 
 }
 
 // preliminary mapping work for 2+ permits
 // load initial Test_215B.dta file first
 
+sort PermitNumber year Seq
+
 keep if countmax > 1 
-codebook PermitNumber, compact // 4735 permits remain
+codebook PermitNumber, compact // 951 permits remain
 sort PermitNumber year Seq
 
 gen lagZip = ZipCode[_n-1]
@@ -858,10 +861,10 @@ order re_sort, after(move)
 replace re_sort = 1 if move == 1 & Name[_n+1] ==Name
 
 tab PermitStatus if move == 1 & re_sort == 0 & temp_trans == 0 & perm_trans == 0
-
-frame put *, into(newframe)
-frame change newframe
-keep if PermitStatus == "Permit holder" & move == 1 & re_sort == 0 & temp_trans == 0 & perm_trans == 0
+// figure out how to deal with this. defining a "transfer back" variable
+gen trans_back = 0
+order trans_back, after(temp_trans)
+replace trans_back = 1 if PermitStatus == "Temporary holder through emergency transfer" & Name[_n-1] == Name[_n+1]
 
 gen inter_year = 0
 order inter_year, after(move)
@@ -871,7 +874,24 @@ gen intra_year = 0
 order intra_year, after(inter_year)
 replace intra_year = 1 if move == 1 & year[_n+1] == year
 
-count if move == 1 & inter_year == 0 & intra_year == 0
+count if move == 1 & inter_year == 0 & intra_year == 0 // none. great
+
+// which moves are left unaccounted for?
+count if move == 1 & re_sort == 0 & temp_trans == 0 & trans_back == 0 & perm_trans == 0 // 20 obs.
+
+tab PermitStatus if move == 1 & re_sort == 0 & temp_trans == 0 & trans_back == 0 & perm_trans == 0 // 19 permits.
+
+// abstract from this for now. Come back and deal with this, plus cancellations, plus the issue of whether or not the next year is in the data.
+sort PermitNumber year Seq
+
+keep if move == 1
+keep PermitNumber year Seq ZipCode nextZip move inter_year intra_year re_sort temp_trans trans_back perm_trans
+rename (ZipCode nextZip) (start_zip end_zip)
+sort year start_zip end_zip
+count if start_zip == end_zip
+duplicates list year start_zip end_zip
+count if start_zip == " " | end_zip == " " // 10. Why are these here? Just missing?
+
 
 
 ***********************************************************************************
