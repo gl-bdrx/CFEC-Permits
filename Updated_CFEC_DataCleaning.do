@@ -1,4 +1,4 @@
-// Do-file to transform scraped spreadsheets from CFEC into .dta files, track permits over time, and map permit migration
+// Do-file to transform scraped spreadsheets from CFEC into .dta files, track permits over time, and prepare data for mapping permit migration in R
 
 // Author: Greg Boudreaux
 // Date: January 2024
@@ -621,9 +621,9 @@ replace temp = 1 if state[_n]== state[_n-1] & year[_n]!=year[_n-1]+1
 }
 
 ***********************************************************************************
-** Section 2: Mapping permit migration over time (as in Mapping.do) file         ** // Incomplete
+** Section 2: Data prep for mapping permit migration over time (as in Mapping.do) ** // Incomplete
 ***********************************************************************************
-
+{
 use "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", clear
 
 
@@ -636,24 +636,52 @@ order hist_descrip, before(catch_hist_descrip)
 order Name, before(Street)
 order FirstName LastName Middle Suffix dup Transferable SeqCheckDigit, last
 order Name ZipCode PermitStatus, after(Seq)
+replace ZipCode = substr(ZipCode, 1,5) // replacing zip+4 codes
 
-// exploring cancellations - why do some permits pop back up after being cancelled?
-/*
-gen ind = 0
-replace ind = 1 if PermitStatus == "Permit cancelled"
-egen sum_ind = sum(ind), by(PermitNumber)
-drop if sum_ind ==0
+
+// exploratory analysis of cancelled permits.
+// Here, I am seeing how many permits come back online after cancellation.
+frames put *, into(cancelled)
+frame change cancelled
+gen cancel = 0
+replace cancel = 1 if PermitStatus == "Permit cancelled"
+bysort PermitNumber: egen sum = sum(cancel)
+keep if sum > 0
 sort PermitNumber year Seq
-codebook PermitNumber
-*/
-
-// fix cancellation thing here
-
-// Dropping all entries for permits after they are cancelled 
+drop sum
+codebook PermitNumber, compact // 26 unique permits were cancelled.
+//dropping post-cancellation entries for cancelled permits
 gen ind = 1
 sort PermitNumber PermitStatus year
 bysort PermitNumber PermitStatus: replace ind = 0 if _n !=1
 drop if PermitStatus == "Permit cancelled" & ind == 0
+sort PermitNumber year Seq
+bysort PermitNumber: egen Max = max(year)
+count if PermitStatus == "Permit cancelled" & year != Max // 7 of 26 cancelled permits come back online
+frame change default
+frames drop cancelled
+
+
+
+// Dropping all entries for cancelled permits after they are cancelled (and in a few cases, before they are re-activated)
+gen ind = 1
+sort PermitNumber PermitStatus year
+bysort PermitNumber PermitStatus: replace ind = 0 if _n !=1
+drop if PermitStatus == "Permit cancelled" & ind == 0
+
+
+/*
+// this code tells us which permits are missing years. in sample data, it's only cancelled permits and I just dropped the years in the cancellation window in the code above
+drop sum
+bysort PermitNumber: egen max = max(year)
+bysort PermitNumber: egen min = min(year)
+gen range = max -min + 1
+gen ind2 = 1
+bysort PermitNumber year: replace ind2 = 0 if _n !=1
+bysort PermitNumber: egen sum = sum(ind2)
+tab PermitNumber if range !=sum
+keep if range !=sum
+*/
 
 
 // making countmax variable- maximum number of yearly transfers per permit
@@ -664,235 +692,130 @@ duplicates drop PermitNumber, force
 tab countmax
 restore
 
-/*
-save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", replace
-*/
+*********************************************************
+// IN FINAL DATA, DEAL WITH MISSING ZIPCODE VALUES HERE**
+*********************************************************
 
-{
-
-**************************************************************
-// keeping permits with countmax == 1 and making map of these.
-**************************************************************
-// frames reset
-// use "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", clear
-sort PermitNumber year
-order ZipCode, after(Name)
-order countmax, first
-
-keep if countmax ==1
-codebook PermitNumber, compact //
-sort PermitNumber year
-
-// boiling down to two random permits. Once you get this to work, do all.
-// keep if PermitNumber == "55354H" | PermitNumber == "56651F"
-
-levelsof PermitNumber, local(permits)
-
-foreach p of local permits {
-
-	// new frame with just observations from that year and one year pre/post
-	frame change default
-	frame put PermitNumber year Name ZipCode City State, into(Permit_`p') // `p'
-	
-	frame change Permit_`p' // `p'
-	keep if PermitNumber == "`p'" // "`p'"
-	
-	levelsof year, local(yrs)
-	local first = word("`yrs'", 1)
-	di `first'
-	
-	foreach y of local yrs {
-		
-		frame change Permit_`p' // `p'
-		frame put PermitNumber year Name ZipCode City State, into(Permit_`p'_`y') // `p'
-		frame change Permit_`p'_`y'
-		keep if year == `y' | year == `y'-1 | year == `y'+1
-		
-		// making indicator for whether or not the next year is observed.
-		gen next_yr_observed = 0
-		sum year
-		if r(max) >  `y' {
-			replace next_yr_observed = 1
-		}
-		
-		if next_yr_observed == 1 { // if the permit is in the dataset for the next year:
-		
-			gen next_observed = 1
-				
-			// Case 1: length[z(y)] = length[z(y+1)] = 1 (ONLY CASE HERE)
-			
-			levelsof ZipCode if year == `y'+1, local(next_zips)
-			levelsof ZipCode if year == `y', local(curr_zips)
-			local result : list next_zips === curr_zips // lists are equal
-			di `result'
-			
-			gen move = 0
-			replace move = 1 if `result' == 0 // if zips are different bw y and y+1
-			gen intra_move = 0 // no intra
-			gen inter_move = 0
-			replace inter_move =1 if `result' == 0 // if zips are different bw y and y+1
-			
-			levelsof Name if year == `y'+1, local(next_name)
-			levelsof Name if year == `y', local(curr_name)
-			local result : list next_name === curr_name // lists are equal
-			di `result'
-			
-			gen re_sort = 0
-			replace re_sort = 1 if `result' == 1 // owner is the same in the next year
-			gen start_zip = `curr_zips'
-			gen end_zip = `next_zips'
-			keep if year == `y'
-			keep in 1
-			keep PermitNumber year move intra_move inter_move re_sort start_zip end_zip
-			
-			}
-			
-			else {
-				
-			gen next_observed = 0
-			gen move = 0
-			gen intra_move = 0
-			gen inter_move = 0
-			gen re_sort = 0
-			levelsof ZipCode if year == `y', local(curr_zips)
-			gen start_zip = `curr_zips'
-			gen end_zip = "NA"
-			keep if year == `y'
-			keep in 1
-			keep PermitNumber year move intra_move inter_move re_sort start_zip end_zip 
-				
-			}
-			
-			save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Jan 2024 New Data\One mapping\Permit_`p'_`y'.dta", replace
-			frame change default
-			if `y' > `first' {
-			frame drop Permit_`p'_`y'
-			}
-
-	}
-	
-	frame change Permit_`p'_`first'
-	foreach x of local yrs {
-		append using "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Jan 2024 New Data\One mapping\Permit_`p'_`x'.dta"
-		
-		erase "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Jan 2024 New Data\One mapping\Permit_`p'_`x'.dta"
-		
-		
-	}
-	
-	frame drop Permit_`p'
-	frame change Permit_`p'_`first'
-	save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Jan 2024 New Data\One mapping\Permit_`p'.dta", replace
-	frame change default
-	frame drop Permit_`p'_`first'
-		
-}
-
-// appending
-cd "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Jan 2024 New Data\One mapping"
-clear
-append using `: dir . files "*.dta"' // append all files together
-
-keep if move == 1
-drop if start_zip =="." | end_zip == "."
-
-// getting all zips to 5 digits. Modify this in final data. Nt needed in example
-/*
-tab start_zip
-replace start_zip ="06708" if start_zip == "6708"
-replace start_zip ="06810" if start_zip == "6810"
-tab end_zip 
-replace end_zip ="06708" if end_zip == "6708"
-replace end_zip ="06810" if end_zip == "6810"
-replace start_zip = substr(start_zip, 1, 5) // 1 change made
-replace end_zip = substr(end_zip, 1, 5) // 2 changes made
-drop if start_zip == end_zip // 8 deleted
-*/
-sort year start_zip end_zip
-duplicates drop PermitNumber year start_zip end_zip, force // figure out why these were happening. I think it's the appending of the first year frames.
-
-gen ind = 1
-bysort year start_zip end_zip: egen sum = sum(ind)
-drop ind
-rename sum number_permits
-bysort year start_zip end_zip: egen sum = sum(re_sort)
-rename sum number_resorts
-bysort year start_zip end_zip: egen sum = sum(intra_move)
-rename sum number_intra
-bysort year start_zip end_zip: egen sum = sum(inter_move)
-rename sum number_inter
-bysort year start_zip end_zip: keep if _n ==1
-drop PermitNumber move intra_move inter_move re_sort
-
-}
-
-// preliminary mapping work for 2+ permits
+// Now, preparing data for mapping. 
 // load initial Test_215B.dta file first
-
 sort PermitNumber year Seq
 
-keep if countmax > 1 
-codebook PermitNumber, compact // 951 permits remain
-sort PermitNumber year Seq
-
+// making lag and lead zip code variables 
 gen lagZip = ZipCode[_n-1]
 order lagZip, after(ZipCode)
 replace lagZip = "" if PermitNumber[_n-1] != PermitNumber
-
 gen nextZip = ZipCode[_n+1]
 replace nextZip = "" if PermitNumber[_n+1] != PermitNumber
 order nextZip, after(lagZip)
 order lagZip, before(ZipCode)
 
-gen perm_trans = 0
-order perm_trans, after(nextZip)
-replace perm_trans = 1 if nextZip != ZipCode & PermitStatus == "Permit holder; permanently transferred permit away"
+// Decision rules: 
+// If the entry and its next entry have the same name but different zip codes, this is coded as a re-sort. Some of these may be coded as permament or temporary transfers in the data, but I am making the executive decision to give owner names precedence.
+// If an entry's PermitStatus is coded as "Permit holder; permanently transferred permit away" and the next entry is another person in another zip code, code this as a permanent transfer.
+// If the NEXT entry's PermitStatus is coded as "Temporary holder through emergency transfer" and the next entry is another person in another zip code, code this as a temporary transfer. 
 
-gen temp_trans = 0
-order temp_trans, after(nextZip)
-replace temp_trans = 1 if nextZip != ZipCode & PermitStatus[_n+1] == "Temporary holder through emergency transfer"
+// making note of likely re-sorts labelled as permanent transfers
+count if PermitStatus == "Permit holder; permanently transferred permit away" & Name[_n] == Name[_n+1] & ZipCode != nextZip & ZipCode != " " & PermitNumber[_n] == PermitNumber[_n+1] // 15 observations
 
+// making note of likely re-sorts labelled as temporary transfers
+count if PermitStatus[_n+1] == "Temporary holder through emergency transfer" & Name[_n] == Name[_n+1] & ZipCode != nextZip & ZipCode != " " & PermitNumber[_n] == PermitNumber[_n+1] // 18 observations
+
+// making general move indicator, capturing whether a permit moves in a given entry
 gen move = 0
 order move, after(nextZip)
 replace move = 1 if nextZip !=ZipCode & PermitNumber[_n+1] == PermitNumber
 
+// making re-sort indicator, which catalogs if a move was due to owner re-sorting
 gen re_sort = 0
 order re_sort, after(move)
 replace re_sort = 1 if move == 1 & Name[_n+1] ==Name
 
+// making indicator for moves that can be attributed to a permanent transfer
+gen perm_trans = 0
+order perm_trans, after(nextZip)
+replace perm_trans = 1 if nextZip != ZipCode & PermitStatus == "Permit holder; permanently transferred permit away" & re_sort == 0
+
+// making indicator for moves that can be attributed to a temporary transfer
+gen temp_trans = 0
+order temp_trans, after(nextZip)
+replace temp_trans = 1 if nextZip != ZipCode & PermitStatus[_n+1] == "Temporary holder through emergency transfer" & re_sort == 0
+
+// there are a few entries that are denoted both temporary and permanent transfers, because the entry's PermitStatus is PermTrans but the next status is TempTrans
+count if temp_trans == 1 & perm_trans == 1 // 31
+count if temp_trans == 1 & perm_trans == 1 & Name[_n+1] == Name[_n+2] // 28. These are likely mislabelled permanent transfers. That's what I'm deciding.
+replace temp_trans = 0 if temp_trans == 1 & perm_trans == 1 & Name[_n+1] == Name[_n+2]
+
+// defining a "transfer back" variable
 tab PermitStatus if move == 1 & re_sort == 0 & temp_trans == 0 & perm_trans == 0
-// figure out how to deal with this. defining a "transfer back" variable
 gen trans_back = 0
 order trans_back, after(temp_trans)
-replace trans_back = 1 if PermitStatus == "Temporary holder through emergency transfer" & Name[_n-1] == Name[_n+1]
+replace trans_back = 1 if move == 1 & re_sort == 0 & temp_trans == 0 & perm_trans == 0 & PermitStatus == "Temporary holder through emergency transfer" & Name[_n-1] == Name[_n+1] & Name[_n] != Name[_n+1]  & PermitNumber[_n] == PermitNumber[_n+1]
 
+// inter-year move indicator
 gen inter_year = 0
 order inter_year, after(move)
 replace inter_year = 1 if move == 1 & year[_n+1] != year
 
+// intra-year move indicator
 gen intra_year = 0
 order intra_year, after(inter_year)
 replace intra_year = 1 if move == 1 & year[_n+1] == year
-
 count if move == 1 & inter_year == 0 & intra_year == 0 // none. great
 
-// which moves are left unaccounted for?
-count if move == 1 & re_sort == 0 & temp_trans == 0 & trans_back == 0 & perm_trans == 0 // 20 obs.
+// which moves are left unaccounted for/ not explained so far?
+count if move == 1 & re_sort == 0 & temp_trans == 0 & trans_back == 0 & perm_trans == 0 // 20 obs
+codebook PermitNumber if move == 1 & re_sort == 0 & temp_trans == 0 & trans_back == 0 & perm_trans == 0 // 19 permits.
 
-tab PermitStatus if move == 1 & re_sort == 0 & temp_trans == 0 & trans_back == 0 & perm_trans == 0 // 19 permits.
+gen sum = re_sort + temp_trans + perm_trans + trans_back
+tab sum // most are 0 (no transfer) or 1 (some form of transfer), but 3 are 2. 
+frames put *, into(new)
+frame change new
+keep if sum == 2
+frame change default
+frame drop new
 
-// abstract from this for now. Come back and deal with this, plus cancellations, plus the issue of whether or not the next year is in the data.
+
+// dealing with cancellations
+codebook PermitNumber if PermitStatus == "Permit cancelled" // 26 permits
+count if PermitStatus == "Permit cancelled" & PermitNumber[_n+1] == PermitNumber // 7 permits were reinstated.
+count if PermitStatus == "Permit cancelled" & PermitNumber[_n+1] == PermitNumber & year[_n+1] == year[_n]+1 // 4 of the reinstated permits were reinstated the next year
+
+
+// making an indicator for a permit's reinstatement, plus a variable capturing how long it was cancelled
+gen year_reinstated = 0
+order year_reinstated, after(perm_trans)
+replace year_reinstated = 1 if PermitStatus[_n-1] == "Permit cancelled" & PermitNumber[_n-1] == PermitNumber
+gen years_cancelled = 0
+order years_cancelled, after(year_reinstated)
+replace years_cancelled = year - year[_n-1] if year_reinstated == 1
+
+
+
+// abstract from unaccounted-for moves for now, as well as the three moves which are still coded as both temporary and permanent. Come back and deal with this with final data, as well as earlier missing zipcodes. Here, no permits (besides the 3 cancellation cases which were now immediately reinstated) are missing years. COme back and check this on full data.
 sort PermitNumber year Seq
-
 keep if move == 1
-keep PermitNumber year Seq ZipCode nextZip move inter_year intra_year re_sort temp_trans trans_back perm_trans
+keep PermitNumber year Seq ZipCode nextZip move inter_year intra_year re_sort temp_trans trans_back perm_trans year_reinstated years_cancelled
 rename (ZipCode nextZip) (start_zip end_zip)
 sort year start_zip end_zip
-count if start_zip == end_zip
+count if start_zip == end_zip // sould be 0. good. 
 duplicates list year start_zip end_zip
 count if start_zip == " " | end_zip == " " // 10. Why are these here? Just missing?
 
+foreach x in move re_sort intra_year inter_year temp_trans perm_trans trans_back year_reinstated {
+	bysort year start_zip end_zip: egen sum = sum(`x')
+	rename sum number_`x'
+}
 
+bysort year start_zip end_zip: keep if _n ==1
+drop PermitNumber Seq move intra_year inter_year re_sort temp_trans perm_trans trans_back year_reinstated years_cancelled number_year_reinstated
+
+// making summary variables
+order number_re_sort, before(number_temp_trans)
+//checking whether intra and inter sum to the total number of moves (they do)
+gen sum = number_move - number_intra_year - number_inter_year
+//checking whether move types sum to the total number of moves (they mostly do but 23 do not due to the above issues which I am goign to rectify)
+gen sum2 = number_move - number_re_sort - number_temp_trans - number_perm_trans - number_trans_back
+}
 
 ***********************************************************************************
 ** Section 3: Making permit-level origin-dest dataset for entire 1975-24 period  **
@@ -903,19 +826,19 @@ count if start_zip == " " | end_zip == " " // 10. Why are these here? Just missi
 use "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", clear
 
 
-sort PermitNumber PermitStatus Year
+sort PermitNumber PermitStatus year
 
 // Dropping all entries for permits after they are cancelled 
 gen ind = 1
 bysort PermitNumber PermitStatus: replace ind = 0 if _n !=1
 drop if PermitStatus == "Permit cancelled" & ind == 0
 
-egen Min = min(Year), by(PermitNumber)
-egen Max = max(Year), by(PermitNumber)
-order Min Max, after(Year)
-order ZipCode, after(Fishery)
-sort Fishery PermitNumber Year Seq
-order Fishery PermitNumber Year Min Max ZipCode PermitType PermitStatus Seq Name, first
+egen Min = min(year), by(PermitNumber)
+egen Max = max(year), by(PermitNumber)
+order Min Max, after(year)
+order ZipCode, after(fishery)
+sort fishery PermitNumber year Seq
+order fishery PermitNumber year Min Max ZipCode PermitType PermitStatus Seq Name, first
 
 // catalog number of owners, number of zips prior to collapsing
 drop ind
@@ -932,8 +855,8 @@ egen number_owners = sum(ind), by(PermitNumber)
 order number_owners, after(number_zips)
 drop ind
 
-keep if Year == Min | Year == Max
-sort Fishery PermitNumber Year Seq
+keep if year == Min | year == Max
+sort fishery PermitNumber year Seq
 
 // dropping permits which do not have a first or last year because these year observations had blank zip codes and were dropped 
 tab ZipCode, mi // none for the example permit. come back to this. 
@@ -958,26 +881,26 @@ preserve
 bysort PermitNumber: keep if _n ==1
 tab zips_firstlast
 restore // takeaway: 99 percent of permits have <= 3 zipcodes in their first and last years. 0.31% have 4
-sort PermitNumber Year Seq
+sort PermitNumber year Seq
 
 // Getting rid of first-year observations not associated with the first holder in that year
-drop if Year == Min & Seq > 1
+drop if year == Min & Seq > 1
 
 // Getting rid of last-year observations not associated with the last holder in that year
-bysort PermitNumber Year: egen max_seq = max(Seq)
-drop if Year == Max & Seq != max_seq 
+bysort PermitNumber year: egen max_seq = max(Seq)
+drop if year == Max & Seq != max_seq 
 drop max_seq
-sort PermitNumber Year
+sort PermitNumber year
 
 // Assigning first observed zip to each permit
 gen first_zip = .
 order first_zip, after(ZipCode)
 destring ZipCode first_zip, replace
-replace first_zip = ZipCode if Year == Min 
+replace first_zip = ZipCode if year == Min 
 replace first_zip = 0 if first_zip == .
 egen sum = sum(first_zip), by(PermitNumber)
-tab sum if Year == Min // None are zero. Great!
-sort PermitNumber Year
+tab sum if year == Min // None are zero. Great!
+sort PermitNumber year
 bysort PermitNumber: egen fz_max = max(first_zip)
 order fz_max, after(first_zip)
 drop first_zip
@@ -986,22 +909,22 @@ rename fz_max first_zip
 // Assigning last observed zip to each permit
 gen last_zip = .
 order last_zip, after(ZipCode)
-replace last_zip = ZipCode if Year == Max 
+replace last_zip = ZipCode if year == Max 
 replace last_zip = 0 if last_zip == .
 drop sum
 egen sum = sum(last_zip), by(PermitNumber)
-tab sum if Year == Max // None are zero. Great!
-sort PermitNumber Year
+tab sum if year == Max // None are zero. Great!
+sort PermitNumber year
 order last_zip, after(first_zip)
 bysort PermitNumber: egen lz_max = max(last_zip)
 order lz_max, after(last_zip)
 drop last_zip
 rename lz_max last_zip
-sort PermitNumber Year
+sort PermitNumber year
 duplicates drop PermitNumber, force
 
 // dropping unnecessary vars and cleaning up
-drop Year ZipCode Seq Name PermitStatus SeqCheckDigit StartDate EndDate LastName FirstName Middle Suffix Street City State ForeignAddress Residency sum
+drop year ZipCode Seq Name PermitStatus SeqCheckDigit StartDate EndDate LastName FirstName Middle Suffix Street City State ForeignAddress Residency sum
 rename (Min Max) (first_yr last_yr)
 codebook PermitNumber, compact
 bysort PermitNumber: egen fz = sum(first_zip)
@@ -1033,7 +956,7 @@ drop if _merge == 1
 drop _merge geopoint daylight_savings_time_flag timezone state city
 rename zip last_zip
 rename (latitude longitude) (last_lat last_lgt)
-sort Fishery
+sort fishery
 order first_lgt first_lat last_lgt last_lat, after(last_zip)
 gen net_move = 1 - nomove
 drop nomove
@@ -1063,11 +986,11 @@ use "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_21
 
 // Dropping all entries for permits after they are cancelled 
 drop if PermitStatus == "Permit cancelled"
-duplicates drop PermitNumber Year, force
+duplicates drop PermitNumber year, force
 
 // Making area map counts by year (break this up by catch/region/etc in final version)
-bysort Year: egen Permits_in_Yr = count(_n)
-duplicates drop Year, force
+bysort year: egen Permits_in_Yr = count(_n)
+duplicates drop year, force
 
-twoway line Permits_in_Yr Year
+twoway line Permits_in_Yr year
 }
