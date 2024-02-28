@@ -3,45 +3,40 @@
 // Author: Greg Boudreaux
 // Date: January 2024
 
+// Latest save on Line 335, after Section 1a. As of 2/21, sections 2 and 3 need work.
+
 ***********************************************************************************
 ** Preliminaries: Make sure that all .xls files are in the same directory        **
+** Three directories in practice: errors, fisheries A-R, fisheries S-Z
 ***********************************************************************************
 {
-// changing the name of each file in the directory
-cd "C:\Users\gboud\Desktop\Example Fisheries"
-local files: dir . files "*.xls"
-di `files'
+// three directories where permits live
 
-foreach file in `files' {
-	
-	clear
-	import excel "`file'", sheet("Permits") firstrow clear
-	drop in 1
-	local year = Year[1]
-	local fishery = Fishery[1]
-	di `year'
-	di "`fishery'"
-	
-	!rename "`file'" "`fishery'_`year'.xls"
+// C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Scraping CFEC Website\Raw Data\ErrorCausingFisheries
 
-}
+// C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Scraping CFEC Website\Raw Data\FisherySpreadsheetsGB_AthruR\Fishery spreadsheets
 
-// looping through and saving as .dta files
+// C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Scraping CFEC Website\Raw Data\FisherySpreadsheetsJR_SthruZ\Scraping_Data
+
+// looping through each directory and saving as .dta files
+
+cd "C:/Users/gboud/Dropbox/Reimer GSR/CFEC_permits/Scraping CFEC Website/Raw Data/FisherySpreadsheetsJR_SthruZ/Scraping_Data"
+
 local files: dir . files "*.xls"
 foreach file in `files' {
 	clear 
 	import excel "`file'", sheet("Permits") firstrow clear
-	drop in 1
-	local year = Year[1]
-	local fishery = Fishery[1]
+	// drop in 1
+	local year = Year[2]
+	local fishery = Fishery[2]
 	di `year'
 	di "`fishery'"
 	
-	save "Stata/`fishery'_`year'.dta", replace
+	save "C:/Users/gboud/Dropbox/Reimer GSR/CFEC_permits/Scraping CFEC Website/FinalFisheries/`fishery'_`year'.dta", replace
 }
 
-// appending all .dta files
-cd "C:\Users\gboud\Desktop\Example Fisheries\Stata"
+// appending all .dta files, getting rid of blanks
+cd "C:/Users/gboud/Dropbox/Reimer GSR/CFEC_permits/Scraping CFEC Website/FinalFisheries"
 local files: dir . files "*.dta"
 clear
 append using `files'
@@ -61,11 +56,13 @@ save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_2
 }
 
 ***********************************************************************************
-** Section 1: Editing to track permits over time (as in Permit_tracking.do) file ** // Incomplete
+** Section 1: Editing to track permits over time (as in Permit_tracking.do) file ** 
+** Incomplete, complete with full dataset.
 ***********************************************************************************
 {
 **********************************************************************
-******* Section 1a. Some exploratory analysis and further cleaning. ** // FINISH WITH MORE DATA
+******* Section 1a. Some exploratory analysis and further cleaning. **
+** Incomplete, complete with full dataset.
 **********************************************************************
 {
 
@@ -330,10 +327,10 @@ label var location_hist_descrip "Hist location from CFEC site"
 ** LATEST SAVE OF THE FULL INITIAL PANEL **
 save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", replace
 
-
 **********************************************************************
 ******* Section 1b. Making example tracking dataset and variables  *** 
-******* for one permit. Generalize this for whole dataset later.   *** // FINISH WITH MORE DATA
+******* for one permit. Generalize this for whole dataset later.   ***
+******** Incomplete, complete with full dataset.
 **********************************************************************
 {
 frames reset
@@ -568,7 +565,8 @@ order states /*countries*/, after(years_missing)
 }
 
 ***********************************************************************
-******* Section 1c: Making sumstat variables for the example permit *** // FINISH WITH MORE DATA
+******* Section 1c: Making sumstat variables for the example permit *** 
+******* Incomplete, complete with full dataset.
 ***********************************************************************
 {
 
@@ -790,14 +788,13 @@ order years_cancelled, after(year_reinstated)
 replace years_cancelled = year - year[_n-1] if year_reinstated == 1
 
 
-
 // abstract from unaccounted-for moves for now, as well as the three moves which are still coded as both temporary and permanent. Come back and deal with this with final data, as well as earlier missing zipcodes. Here, no permits (besides the 3 cancellation cases which were now immediately reinstated) are missing years. COme back and check this on full data.
 sort PermitNumber year Seq
 keep if move == 1
 keep PermitNumber year Seq ZipCode nextZip move inter_year intra_year re_sort temp_trans trans_back perm_trans year_reinstated years_cancelled
 rename (ZipCode nextZip) (start_zip end_zip)
 sort year start_zip end_zip
-count if start_zip == end_zip // sould be 0. good. 
+count if start_zip == end_zip // sould be 0. good.
 duplicates list year start_zip end_zip
 count if start_zip == " " | end_zip == " " // 10. Why are these here? Just missing?
 
@@ -805,6 +802,12 @@ foreach x in move re_sort intra_year inter_year temp_trans perm_trans trans_back
 	bysort year start_zip end_zip: egen sum = sum(`x')
 	rename sum number_`x'
 }
+
+gen ind = 1
+bysort PermitNumber year start_zip end_zip: replace ind = 0 if _n >1
+bysort year start_zip end_zip: egen sum = sum(ind)
+drop ind
+rename sum number_permits
 
 bysort year start_zip end_zip: keep if _n ==1
 drop PermitNumber Seq move intra_year inter_year re_sort temp_trans perm_trans trans_back year_reinstated years_cancelled number_year_reinstated
@@ -818,7 +821,140 @@ gen sum2 = number_move - number_re_sort - number_temp_trans - number_perm_trans 
 }
 
 ***********************************************************************************
-** Section 3: Making permit-level origin-dest dataset for entire 1975-24 period  **
+** Section 3: Making net migration flows for r mapping (ie in mapping.do\        **
+** There is still a lot of work to do here                                       **
+***********************************************************************************
+{
+// start from the work in Section 2
+
+drop if start_zip ==" " | end_zip == " "
+count if start_zip == end_zip // 0
+
+// merging
+destring start_zip end_zip, replace
+
+// trying merge with stanford dataset
+rename start_zip zip
+merge m:m zip using "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Zip Coordinates Data\StanfordPHSZips.dta"
+drop if _merge == 2
+drop _merge geopoint daylight_savings_time_flag timezone state city
+rename zip start_zip
+rename (latitude longitude) (start_lat start_lgt)
+rename end_zip zip	
+merge m:m zip using "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Zip Coordinates Data\StanfordPHSZips.dta"
+drop if _merge == 2
+drop _merge geopoint daylight_savings_time_flag timezone state city
+rename zip end_zip
+rename (latitude longitude) (end_lat end_lgt)
+sort year
+
+count if start_lat == . | end_lat == . | start_lgt == . | end_lgt == . // 83 out of 5608
+drop if start_lat == . | end_lat == . | start_lgt == . | end_lgt == . // for now, just for mapping
+sort year
+
+preserve
+egen outflow = sum(number_permits), by(start_zip)
+collapse (mean) outflow, by(start_zip)
+rename start_zip zip
+save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\S15B_outflows.dta", replace
+restore
+
+preserve
+egen inflow = sum(number_permits), by(end_zip)
+collapse (mean) inflow, by(end_zip)
+rename end_zip zip
+save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\S15B_inflows.dta", replace
+restore
+
+use "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\S15B_outflows.dta", clear
+
+merge m:m zip using "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\S15B_inflows.dta"
+
+replace outflow = 0 if outflow == .
+replace inflow = 0 if inflow == .
+drop _merge
+gen net = inflow- outflow
+egen test = sum(net) // it's 0! Sick!
+drop test
+
+gen sign = ""
+replace sign = "Neg" if net < 0
+replace sign = "Pos" if net > 0
+replace sign = "Zero" if net == 0
+
+gen absval_net = abs(net)
+
+merge 1:m zip using "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Zip Coordinates Data\StanfordPHSZips.dta"
+drop if _merge == 2
+drop geopoint daylight_savings_time_flag timezone _merge
+rename (latitude longitude) (latit longit)
+
+save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\S15B_net.dta", replace
+
+// making flows dataset. here, rerun section 2 and start from there.
+clear
+sort start_zip end_zip
+collapse (sum) number*, by(start_zip end_zip)
+drop if start_zip ==" " | end_zip == " "
+destring start_zip end_zip, replace
+
+// grouping combinations of zip codes
+gen zipcombo1 = min(start_zip, end_zip) 
+gen zipcombo2 = max(start_zip, end_zip) 
+egen zip_combo_id = group(zipcombo1 zipcombo2), label 
+sort zip_combo_id
+egen count = count(_n), by(zip_combo_id)
+
+gen net_importer = 0
+replace net_importer = end_zip if count == 1
+
+bysort zip_combo_id: egen max = max(number_permits)
+bysort zip_combo_id: egen min = min(number_permits)
+replace net_importer = 411 if max == min & count > 1 // identifier for zero net transfers
+replace net_importer = end_zip if max == number_permits & net_importer != 411
+replace net_importer = start_zip if net_importer == 0
+
+gen net_exporter = 0
+order net_exporter, after(net_importer)
+replace net_exporter = net_importer if net_importer == 411
+replace net_exporter = start_zip if net_importer == end_zip
+replace net_exporter = end_zip if net_exporter == 0
+
+gen net_transfers = max - min
+bysort zip_combo_id: egen trading_volume = sum(number_permits)
+
+// here, we can do something with intra, inter, re-sorts later. for now, abstracting away from this. ideas: Look at total re_sorts. Note: find how many unique permits went between each zip combo
+
+collapse (mean) zipcombo1 zipcombo2 count net_importer net_exporter max min net_transfers trading_volume, by(zip_combo_id)
+
+rename (zipcombo1 zipcombo2) (zip1 zip2)
+rename (max min) (imports exports)
+
+// merging zips back on
+rename zip1 zip
+merge m:m zip using "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Zip Coordinates Data\StanfordPHSZips.dta"
+drop if _merge ==2
+drop _merge geopoint daylight_savings_time_flag timezone 
+rename (zip latitude longitude state city) (zip1 zip1_lat zip1_lon state1 city1)
+rename zip2 zip
+merge m:m zip using "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Zip Coordinates Data\StanfordPHSZips.dta"
+drop if _merge ==2
+drop _merge geopoint daylight_savings_time_flag timezone 
+rename (zip latitude longitude state city) (zip2 zip2_lat zip2_lon state2 city2)
+sort zip_combo_id
+
+save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Mapping\Trial Run Migration Flows\S04W_flows.dta", replace
+
+
+// Now: make map with color of dots indicating sign, size indicating volume of net flows, arc size indicating trading volume, tooltip indicating direction of net flows between individual zips.
+
+}
+
+// These sections (4 & 5) are done for 215B
+{
+***********************************************************************************
+** Section 4: Making permit-level origin-dest dataset for entire 1975-24 period  **
+** DONE for 215B      
 ***********************************************************************************
 {
 
@@ -977,8 +1113,9 @@ order range, after(last_yr)
 }
 
 ***********************************************************************************
-** Section 4: Making the inputs for an area chart which shows how many permits     **
+** Section 5: Making the inputs for an area chart which shows how many permits   **
 ** exist in the system at any give time.                                         **
+** DONE for 215B      
 ***********************************************************************************
 {
 // Start this from full panel of permits
@@ -993,4 +1130,5 @@ bysort year: egen Permits_in_Yr = count(_n)
 duplicates drop year, force
 
 twoway line Permits_in_Yr year
+}
 }
