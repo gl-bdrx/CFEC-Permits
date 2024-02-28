@@ -10,17 +10,17 @@
 ** Three directories in practice: errors, fisheries A-R, fisheries S-Z
 ***********************************************************************************
 {
-// three directories where permits live
+// three directories where permits live: 
 
 // C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Scraping CFEC Website\Raw Data\ErrorCausingFisheries
 
 // C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Scraping CFEC Website\Raw Data\FisherySpreadsheetsGB_AthruR\Fishery spreadsheets
 
-// C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Scraping CFEC Website\Raw Data\FisherySpreadsheetsJR_SthruZ\Scraping_Data
+// C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Scraping CFEC Website\Raw Data\FisherySpreadsheetsJR_SthruZ\Fishery spreadsheets
 
 // looping through each directory and saving as .dta files
 
-cd "C:/Users/gboud/Dropbox/Reimer GSR/CFEC_permits/Scraping CFEC Website/Raw Data/FisherySpreadsheetsJR_SthruZ/Scraping_Data"
+cd "C:/Users/gboud/Dropbox/Reimer GSR/CFEC_permits/Scraping CFEC Website/FisherySpreadsheetsJR_SthruZ/Fishery spreadsheets"
 
 local files: dir . files "*.xls"
 foreach file in `files' {
