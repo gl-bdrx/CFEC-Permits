@@ -20,7 +20,7 @@
 
 // looping through each directory and saving as .dta files
 
-cd "C:/Users/gboud/Dropbox/Reimer GSR/CFEC_permits/Scraping CFEC Website/FisherySpreadsheetsJR_SthruZ/Fishery spreadsheets"
+cd "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Scraping CFEC Website\Raw Data\ErrorCausingFisheries"
 
 local files: dir . files "*.xls"
 foreach file in `files' {
@@ -35,12 +35,13 @@ foreach file in `files' {
 	save "C:/Users/gboud/Dropbox/Reimer GSR/CFEC_permits/Scraping CFEC Website/FinalFisheries/`fishery'_`year'.dta", replace
 }
 
-// appending all .dta files, getting rid of blanks
+// appending all .dta files, getting rid of blank first rows from CFEC query tool
 cd "C:/Users/gboud/Dropbox/Reimer GSR/CFEC_permits/Scraping CFEC Website/FinalFisheries"
 local files: dir . files "*.dta"
 clear
-append using `files'
+append using `files', force
 duplicates drop // just checking
+drop if Year == ""
 
 // data cleaning work
 replace Seq = substr(Seq, 2, 1) if substr(Seq, 1, 1) =="0"
@@ -49,8 +50,20 @@ gen Name = FirstName + " " + LastName
 order PermitNumber, after(PermitSerial)
 drop PermitSerial PermitSerialCheckDigit
 destring Year Seq, replace
-drop if PermitType != "Permanent"
 sort PermitNumber Year Seq
+drop if Year == 2024 // May be incomplete, so dropping just to be safe. 
+// drop if PermitType != "Permanent"
+
+save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Scraping CFEC Website\PreliminaryFullPermitData.dta", replace // this is full data, minus 15 error-causing permit-years.
+
+clear
+use "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Scraping CFEC Website\PreliminaryFullPermitData.dta"
+
+// keeping only permanent permits LEFT OFF HERE
+keep if PermitType == "Permanent"
+codebook Fishery, compact
+tab Fishery
+
 
 save "C:\Users\gboud\Dropbox\Reimer GSR\CFEC_permits\Permit Tracking Data\Test_215B", replace  // GB - sub in whatever path you are going to use. 
 }
